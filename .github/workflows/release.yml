@@ -1,0 +1,27 @@
+name: Release
+
+# Pushing a tag (e.g. 2026.10.23.0) builds the card and publishes a GitHub
+# release with the bundle attached. HACS reads releases to detect updates.
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/neerslag-card.dist.js --title "${GITHUB_REF_NAME}" --generate-notes

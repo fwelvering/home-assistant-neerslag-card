@@ -168,7 +168,10 @@ class CombiCard extends LitElement {
 		}
 
 		// Display "No Entity or Entities found card"
-		if (!stateObj && !stateMultiObj) {
+		// (entity can be missing right after a HA restart or when the integration is reloading)
+		if (!stateObj && !stateMultiObj.some(Boolean)) {
+			this.dontMakeGraph = true;
+			this.destroyChart();
 			return html`
 				<style>
 					.not-found {
@@ -249,7 +252,7 @@ class CombiCard extends LitElement {
 
 		if(this.prepareChartDataSets().getChartsDataAlsArray()[0] === undefined) {
 			this.dontMakeGraph = true;
-			this.myChart = null;
+			this.destroyChart();
 			return html`
 
 			<ha-card>
@@ -311,7 +314,7 @@ class CombiCard extends LitElement {
 		// 	console.log(`${propName} changed. oldValue: ${oldValue}`);
 		// });
 		this.makeGraph();
-		if (this.myChart.width === 0) {
+		if (this.myChart && this.myChart.width === 0) {
 			//console.log("firstUpdated: chart is niet zichtbaar!");
 			this.myChart.resize();
 		}
@@ -323,7 +326,8 @@ class CombiCard extends LitElement {
 
 	updated(changedProperties) {
 
-		if(this.myChart === null) {
+		// no chart yet (first render without data, or data returned after an API hiccup)
+		if(!this.myChart) {
 			this.makeGraph();
 		}
 
@@ -347,7 +351,7 @@ class CombiCard extends LitElement {
 					// when using single entity
 					if (this._config.entity) {
 						//console.log(this._config.entity);
-						if (this.hass.states[this._config.entity].attributes.data !== oldValue.states[this._config.entity].attributes.data) {
+						if (this.getEntityData(this.hass, this._config.entity) !== this.getEntityData(oldValue, this._config.entity)) {
 							//console.log("data has changed, lets update")
 							this.updateGrafiek()
 						}
@@ -357,7 +361,7 @@ class CombiCard extends LitElement {
 					if (this._config.entities) {
 						for (const entity of this._config.entities) {
 							//console.log(entity)
-							if (this.hass.states[entity].attributes.data !== oldValue.states[entity].attributes.data) {
+							if (this.getEntityData(this.hass, entity) !== this.getEntityData(oldValue, entity)) {
 								//  console.log("data has changed, lets update")
 								//  console.log(entity)
 								this.updateGrafiek()
@@ -427,7 +431,7 @@ class CombiCard extends LitElement {
 		// verwijder de kaart
 		if(this.myChart) {
 
-			this.myChart=null;
+			this.destroyChart();
 			this.renderRoot.getElementById("neerslagChart").remove();
 			let canvas = document.createElement('canvas');
 			canvas.setAttribute('id','neerslagChart');
@@ -639,7 +643,7 @@ class CombiCard extends LitElement {
 		//console.log(array1[0])
 		//console.log(array2[0])
 
-		if (!array2[0] || !array1[0]) {
+		if (!array1 || !array2 || !array2[0] || !array1[0]) {
 			return;
 		}
 
@@ -688,14 +692,14 @@ class CombiCard extends LitElement {
 		let chartsDataAlsArray = []
 		let chartDatasets = []
 		if (this._config.entity) {
-			if (this.hass.states[this._config.entity].attributes.data) {
-				chartData = this.prepareData(this.hass.states[this._config.entity].attributes.data, this._config.entity);
+			chartData = this.prepareData(this.getEntityData(this.hass, this._config.entity), this._config.entity);
+			if (chartData.length > 0) {
 				chartsDataAlsArray.push(chartData);
 				chartDatasets.push(this.generateDatasetObject(chartData[1]))
 			}
 		} else {
 			for (const entity of this._config.entities) {
-				chartData = this.prepareData(this.hass.states[entity].attributes.data, entity);
+				chartData = this.prepareData(this.getEntityData(this.hass, entity), entity);
 
 				// potential fix for when one of the services does not contain data
 				// the dataset becomes invalid and the graph doesnt load correctly
@@ -719,25 +723,57 @@ class CombiCard extends LitElement {
 		}
 	}
 
+	/**
+	 * The data attribute of an entity, or undefined when the entity
+	 * (or its attribute) is not available (e.g. after a HA restart).
+	 */
+	getEntityData(hass, entity) {
+		return hass && hass.states && hass.states[entity] && hass.states[entity].attributes
+			? hass.states[entity].attributes.data
+			: undefined;
+	}
+
+	destroyChart() {
+		if (this.myChart) {
+			try {
+				this.myChart.destroy();
+			} catch (e) {
+				// chart already gone, nothing to clean up
+			}
+		}
+		this.myChart = null;
+	}
+
+	/**
+	 * Returns [times, values], or [] when the data is missing or malformed.
+	 * The sensor passes the raw API response through, so an API hiccup can
+	 * result in e.g. {"success":false} or an empty string.
+	 */
 	prepareData(data, entity) {
 
 		//console.log(this._config.entity);
 		if (!data || data.length === 0) {
-			return html``;
+			return [];
 		}
 
-		// data can be buienalarm or buienradar
-		if (entity == "sensor.neerslag_buienradar_regen_data") {
-			return this.formatBuienradarData(data);
+		try {
+			// data can be buienalarm or buienradar
+			if (entity == "sensor.neerslag_buienradar_regen_data") {
+				return this.formatBuienradarData(data);
+			}
+
+			if (entity == "sensor.neerslag_buienalarm_regen_data_oud") {
+				return this.formatBuienalarmData(data);
+			}
+
+			if (entity == "sensor.neerslag_buienalarm_regen_data") {
+				return this.formatBuienalarmDataAndere(data);
+			}
+		} catch (e) {
+			console.warn("neerslag-card: could not process data of " + entity, e);
 		}
 
-		if (entity == "sensor.neerslag_buienalarm_regen_data_oud") {
-			return this.formatBuienalarmData(data);
-		}
-
-		if (entity == "sensor.neerslag_buienalarm_regen_data") {
-			return this.formatBuienalarmDataAndere(data);
-		}
+		return [];
 	}
 
 	/**
@@ -752,6 +788,9 @@ class CombiCard extends LitElement {
 	 * 		   	- data[1] = array[value, value] = preciption
 	 */
 	formatBuienradarData(data) {
+		if (typeof data !== 'string') {
+			return [];
+		}
 		const dataArray = data.trim().split(' ');
 
 		let tijd = [];
@@ -776,6 +815,10 @@ class CombiCard extends LitElement {
 	* Op basis van www.buienalarm.nl/api/weather/splash?
 	*/
 	formatBuienalarmData(data) {
+
+		if (!Array.isArray(data)) {
+			return [];
+		}
 
 		// https://www.w3schools.com/jsref/jsref_getHours.asp
 		// Met JavaScript Date naar uren/minuten getallen kleiner dan 10 zijn 1 decimaal
@@ -827,6 +870,10 @@ class CombiCard extends LitElement {
 		let tijd = []
 		let rain = [];
 
+		if (!Array.isArray(data.precip) || data.precip.length === 0 || data.start === undefined || data.delta === undefined) {
+			return [];
+		}
+
 		data.precip.forEach(function (item, index) {
 			rain.push(parseFloat(Math.pow(10, (item - 109) / 32)).toFixed(2));
 		});
@@ -860,8 +907,18 @@ class CombiCard extends LitElement {
 			console.log('updateGrafiek - dontMakeGraph')
 			return;
 		}
-		this.myChart.data.labels = this.prepareChartDataSets().getChartsDataAlsArray()[0][0];
-		this.myChart.data.datasets = this.prepareChartDataSets().getChartDatasets();
+		if (!this.myChart) {
+			return;
+		}
+
+		const chartDataSets = this.prepareChartDataSets();
+		const nieuweChartsData = chartDataSets.getChartsDataAlsArray();
+		if (nieuweChartsData[0] === undefined) {
+			// bad data this round; render() shows the "no data" message
+			return;
+		}
+		this.myChart.data.labels = nieuweChartsData[0][0];
+		this.myChart.data.datasets = chartDataSets.getChartDatasets();
 		this.myChart.update();
 	}
 }
@@ -878,7 +935,7 @@ window.customCards.push({
 });
 
 console.info(
-	`%c NEERSLAG-CARD %c 2024.05.05.0`,
+	`%c NEERSLAG-CARD %c 2026.10.23.0`,
 	"Color: white; font-weight: bold; background: red;",
 	""
 );
