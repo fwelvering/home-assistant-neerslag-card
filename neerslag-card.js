@@ -48,6 +48,7 @@ class CombiCard extends LitElement {
 		}
 		this._config = config;
 		this.zoomwaarde = 5.5;
+		this._lastDataState = null;
 	}
 
 	getCardSize() {
@@ -242,6 +243,14 @@ class CombiCard extends LitElement {
 
 	updateGrafiek() {
 		if (!this.myChart) return;
+		
+		// Caching logic: Compare current entity state with last known state
+		const currentDataState = this._getCurrentDataState();
+		if (this._lastDataState === currentDataState) {
+			return; // Data hasn't changed, skip expensive chart update
+		}
+		this._lastDataState = currentDataState;
+
 		const dataSets = this.prepareChartDataSets();
 		const labels = dataSets.getChartsDataAlsArray()[0]?.[0];
 		if (!labels) return;
@@ -249,6 +258,22 @@ class CombiCard extends LitElement {
 		this.myChart.data.labels = labels;
 		this.myChart.data.datasets = dataSets.getChartDatasets();
 		this.myChart.update('none');
+	}
+
+	_getCurrentDataState() {
+		// Create a unique hash/string representing the current state of relevant entities
+		const states = [];
+		if (this._config.entity) {
+			const s = this.hass.states[this._config.entity];
+			states.push(s ? s.state + JSON.stringify(s.attributes?.data) : 'null');
+		}
+		if (this._config.entities) {
+			this._config.entities.forEach(e => {
+				const s = this.hass.states[e];
+				states.push(s ? s.state + JSON.stringify(s.attributes?.data) : 'null');
+			});
+		}
+		return states.join('|');
 	}
 
 	convertToHex(color) {
