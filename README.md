@@ -2,6 +2,9 @@
 
 Display rain forecast using BuienAlarm and/or BuienRadar data in Home Assistant.
 
+## Preview
+![Neerslag Card Preview](preview.png)
+
 ## Installation
 Install via HACS:
 1. Add `https://github.com/fwelvering/home-assistant-neerslag-card` as a custom repository.
