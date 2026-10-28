@@ -13,9 +13,9 @@ class CombiCard extends LitElement {
 
 	static get properties() {
 		return {
-			hass: {},
-			_config: {},
-			myChart: {}
+			hass: { type: Object },
+			_config: { type: Object },
+			myChart: { state: true }
 		};
 	}
 
@@ -28,6 +28,9 @@ class CombiCard extends LitElement {
 
 	static get styles() {
 		return css`
+			:host {
+				display: block;
+			}
 			ha-card {
 				position: relative;
 			}
@@ -42,20 +45,7 @@ class CombiCard extends LitElement {
 		`;
 	}
 
-	setConfig(config) {
-		if (!config.entity && !config.entities) {
-			throw new Error('You need to define an entity or a list of entities.');
-		}
-		this._config = config;
-		this.zoomwaarde = 5.5;
-		this._lastDataState = null;
-	}
-
-	getCardSize() {
-		return 2;
-	}
-
-	vertaling = {
+	static TRANSLATIONS = {
 		nl : {
 			regenMmUur : 'Regen (mm / uur)',
 			regenvalVoorspelling : 'Regenval voorspelling',
@@ -80,26 +70,31 @@ class CombiCard extends LitElement {
 			zwaar : 'Forte',
 			geenDataBeschikbaar: 'Pas de données du senseur disponibles',
 		}
+	};
+
+	setConfig(config) {
+		if (!config.entity && !config.entities) {
+			throw new Error('You need to define an entity or a list of entities.');
+		}
+		this._config = config;
+		this.zoomwaarde = 5.5;
+		this._lastDataState = null;
 	}
 
-	localize(key){
-		let lang = this.getCurrentLanguage();
-		if(!this.vertaling[lang]) lang = 'nl';
-		
-		if(this.vertaling[lang][key]) {
-			return this.vertaling[lang][key];
-		} else if (lang !== 'nl' && this.vertaling['nl'][key]) {
-			return this.vertaling['nl'][key];
-		}
-		return 'No translation text found';
+	getCardSize() {
+		return 2;
+	}
+
+	localize(key) {
+		const lang = this.getCurrentLanguage();
+		const translationSet = CombiCard.TRANSLATIONS[lang] || CombiCard.TRANSLATIONS['nl'];
+		return translationSet[key] || CombiCard.TRANSLATIONS['nl'][key] || 'No translation found';
 	}
 
 	getCurrentLanguage() {
-		let lang = (localStorage.getItem('selectedLanguage') || '').replace(/['"]+/g, '').replace('-', '_');
-		if(lang == '') {
-			lang = (navigator.language || navigator.userLanguage).replace(/['"]+/g, '').replace('-', ' ').substring(0, 2);
-		}
-		return lang;
+		const storedLang = (localStorage.getItem('selectedLanguage') || '').replace(/['"]+/g, '').replace('-', '_');
+		if (storedLang) return storedLang;
+		return (navigator.language || navigator.userLanguage).replace(/['"]+/g, '').replace('-', ' ').substring(0, 2);
 	}
 
 	render() {
@@ -112,7 +107,7 @@ class CombiCard extends LitElement {
 			return html`
 				<ha-card>
 					<h1 class="card-header">${this._config.title}</h1>
-					<div style="background-color: red; padding: 8px; color: white;">
+					<div style="background-color: var(--error-color, red); padding: 8px; color: white;">
 						Entity or Entities not available.
 					</div>
 					<ha-icon icon="mdi:weather-rainy"></ha-icon>
@@ -191,7 +186,7 @@ class CombiCard extends LitElement {
 				borderColor: [primaryColor],
 				scales: {
 					y: {
-						ticks:{color: secondaryTextColor},
+						ticks: { color: secondaryTextColor },
 						beginAtZero: true,
 						title: {
 							display: true,
@@ -201,7 +196,7 @@ class CombiCard extends LitElement {
 						suggestedMax: this.zoomwaarde,
 					},
 					x: {
-						ticks:{color: secondaryTextColor},
+						ticks: { color: secondaryTextColor },
 						title: {
 							display: true,
 							text: this.localize('regenvalVoorspelling'),
@@ -244,10 +239,9 @@ class CombiCard extends LitElement {
 	updateGrafiek() {
 		if (!this.myChart) return;
 		
-		// Caching logic: Compare current entity state with last known state
 		const currentDataState = this._getCurrentDataState();
 		if (this._lastDataState === currentDataState) {
-			return; // Data hasn't changed, skip expensive chart update
+			return;
 		}
 		this._lastDataState = currentDataState;
 
@@ -261,7 +255,6 @@ class CombiCard extends LitElement {
 	}
 
 	_getCurrentDataState() {
-		// Create a unique hash/string representing the current state of relevant entities
 		const states = [];
 		if (this._config.entity) {
 			const s = this.hass.states[this._config.entity];
